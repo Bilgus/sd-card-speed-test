@@ -1,6 +1,6 @@
 #!/bin/bash
 # Created by Alexander aka BioDranik <me@alex.bio> in Minsk, Belarus
-
+#edited.
 set -eu
 
 if [ $# -lt 1 ]; then
@@ -9,51 +9,46 @@ if [ $# -lt 1 ]; then
 fi
 
 SD_DIR=$1
-FILENAME="$SD_DIR/file_speed_test.deleteme"
-SIZE=1000 # in MB
+FILENAME="$SD_DIR/USBdisktest.tmp"
+SIZE=10 # in KB
+SIZEBYTE=$((SIZE*1024))
+BLOCKSZ=(512 1024 4096 10485760)
+BS=1
 
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  WRITE_FILE_COMMAND="mkfile ${SIZE}m $FILENAME"
-  CLEAR_CACHE_COMMAND="purge"
-else
-  WRITE_FILE_COMMAND="dd if=/dev/zero of=$FILENAME bs=1M count=$SIZE oflag=direct"
-  CLEAR_CACHE_COMMAND='sh -c echo 3 > /proc/sys/vm/drop_caches'
-fi
-READ_FILE_COMMAND="cat $FILENAME > /dev/null"
+WRITE_FILE_COMMAND="dd if=/dev/zero of=$FILENAME bs=$BS count=$SIZEBYTE oflag=dsync"
 
-RunTimeInSeconds() {
-  local TIMEFORMAT=%R
-  RES=`{ time $@ >/dev/null 2>&1; } 2>&1`
-  echo $RES
-}
-
-ClearFileCache() {
-  if sudo -n false 2>/dev/null; then
-    echo "Administrator password is required to clear file cache and get correct read test results."
-  fi
-  sudo $CLEAR_CACHE_COMMAND
-}
+READ_FILE_COMMAND="dd of=/dev/zero if=$FILENAME bs=$BS count=$SIZEBYTE oflag=dsync iflag=nocache"
 
 WriteFile() {
-  echo "Writing ${SIZE}MB file $FILENAME..."
-  local WRITE_SECONDS=`RunTimeInSeconds $WRITE_FILE_COMMAND`
-  if [ -f "$FILENAME" ]; then
-    local WRITE_SPEED=$( echo "scale=2; $SIZE/$WRITE_SECONDS" | bc -l)
-    echo "Average sequential write speed: ${WRITE_SPEED}MB/sec."
-  else
-    echo "Error writing file $FILENAME"
-    false
-  fi
+  local blocks=${#BLOCKSZ[@]}
+
+  for (( b=1; b<$blocks; b++ ))
+  do
+    BS=BLOCKSZ[b]
+    echo "-------------------------------"
+    echo "Writing ${SIZE}KB file Block Size: ${BLOCKSZ[b]}B..."
+    RES=$({ $WRITE_FILE_COMMAND >/dev/null; } 2>&1)
+    echo ${RES/#*$'\n'} 
+    #echo $RES
+  done
 }
 
 ReadFile() {
-  local READ_SECONDS=`RunTimeInSeconds $READ_FILE_COMMAND`
-  local READ_SPEED=$( echo "scale=2; $SIZE/$READ_SECONDS" | bc -l)
-  echo "Average sequential read speed: ${READ_SPEED}MB/sec."
+  local blocks=${#BLOCKSZ[@]}
+
+  for (( b=1; b<$blocks; b++ ))
+  do
+    BS=BLOCKSZ[b]
+    echo "-------------------------------"
+    echo "Reading ${SIZE}KB file Block Size: ${BLOCKSZ[b]}B..."
+    RES=$({ $READ_FILE_COMMAND >/dev/null; } 2>&1)
+    echo ${RES/#*$'\n'}
+    #echo $RES
+  done
 }
+
 
 WriteFile
 # Always delete created file on exit.
 trap "rm $FILENAME" 0
-ClearFileCache
 ReadFile
